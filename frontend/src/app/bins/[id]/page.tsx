@@ -215,17 +215,32 @@ export default function BinPage() {
     const halfMargin = config.wall_thickness + config.cutout_clearance + 0.25
     const toolW = maxX - minX
     const toolH = maxY - minY
-    const needX = Math.max(1, Math.ceil((toolW + 2 * halfMargin) / GRID_UNIT))
-    const needY = Math.max(1, Math.ceil((toolH + 2 * halfMargin) / GRID_UNIT))
 
-    const gridChanged = config.grid_x !== needX || config.grid_y !== needY
+    const isFreeform = config.freeform
+    const needX = isFreeform
+      ? Math.max(20, Math.ceil((toolW + 2 * halfMargin) / 10) * 10)
+      : Math.max(1, Math.ceil((toolW + 2 * halfMargin) / GRID_UNIT))
+    const needY = isFreeform
+      ? Math.max(20, Math.ceil((toolH + 2 * halfMargin) / 10) * 10)
+      : Math.max(1, Math.ceil((toolH + 2 * halfMargin) / GRID_UNIT))
+
+    const gridChanged = isFreeform
+      ? config.width_mm !== needX || config.depth_mm !== needY
+      : config.grid_x !== needX || config.grid_y !== needY
     if (gridChanged) {
-      setConfig(prev => ({ ...prev, grid_x: needX, grid_y: needY }))
+      setConfig(prev => isFreeform
+        ? { ...prev, width_mm: needX, depth_mm: needY }
+        : { ...prev, grid_x: needX, grid_y: needY }
+      )
     }
 
     // recentre tools if grid changed or tools are off-centre
-    const binW = (gridChanged ? needX : config.grid_x) * GRID_UNIT
-    const binH = (gridChanged ? needY : config.grid_y) * GRID_UNIT
+    const binW = isFreeform
+      ? (gridChanged ? needX : config.width_mm)
+      : (gridChanged ? needX : config.grid_x) * GRID_UNIT
+    const binH = isFreeform
+      ? (gridChanged ? needY : config.depth_mm)
+      : (gridChanged ? needY : config.grid_y) * GRID_UNIT
     const toolCx = (minX + maxX) / 2
     const toolCy = (minY + maxY) / 2
     const dx = binW / 2 - toolCx
@@ -240,7 +255,7 @@ export default function BinPage() {
         ),
       })))
     }
-  }, [autoSize, isDragging, placedTools, config.grid_x, config.grid_y, config.wall_thickness, config.cutout_clearance])
+  }, [autoSize, isDragging, placedTools, config.freeform, config.grid_x, config.grid_y, config.width_mm, config.depth_mm, config.wall_thickness, config.cutout_clearance])
 
   const handleToggleSmoothed = useCallback(async (toolId: string, smoothed: boolean) => {
     try {
@@ -273,17 +288,28 @@ export default function BinPage() {
     const toolW = maxX - minX
     const toolH = maxY - minY
 
+    const isFreeform = config.freeform
     const margin = 2 * config.wall_thickness + 2 * config.cutout_clearance + 0.5
-    const needX = Math.max(config.grid_x, Math.ceil((toolW + margin) / GRID_UNIT))
-    const needY = Math.max(config.grid_y, Math.ceil((toolH + margin) / GRID_UNIT))
+    const needX = isFreeform
+      ? Math.max(config.width_mm, Math.ceil((toolW + margin) / 10) * 10)
+      : Math.max(config.grid_x, Math.ceil((toolW + margin) / GRID_UNIT))
+    const needY = isFreeform
+      ? Math.max(config.depth_mm, Math.ceil((toolH + margin) / 10) * 10)
+      : Math.max(config.grid_y, Math.ceil((toolH + margin) / GRID_UNIT))
 
-    if (needX !== config.grid_x || needY !== config.grid_y) {
-      setConfig(prev => ({ ...prev, grid_x: needX, grid_y: needY }))
+    const dimsChanged = isFreeform
+      ? needX !== config.width_mm || needY !== config.depth_mm
+      : needX !== config.grid_x || needY !== config.grid_y
+    if (dimsChanged) {
+      setConfig(prev => isFreeform
+        ? { ...prev, width_mm: needX, depth_mm: needY }
+        : { ...prev, grid_x: needX, grid_y: needY }
+      )
     }
 
     // always centre the tool in the bin
-    const binW = needX * GRID_UNIT
-    const binH = needY * GRID_UNIT
+    const binW = isFreeform ? needX : needX * GRID_UNIT
+    const binH = isFreeform ? needY : needY * GRID_UNIT
     const toolCx = (minX + maxX) / 2
     const toolCy = (minY + maxY) / 2
     const dx = binW / 2 - toolCx
@@ -355,8 +381,8 @@ export default function BinPage() {
   const stlUrlWithVersion = stlUrl ? `${stlUrl}?v=${stlVersion}` : null
   const splitUrlsWithVersion = stlUrls.length > 0 ? stlUrls.map(u => `${u}?v=${stlVersion}`) : null
   const insertUrlWithVersion = insertStlUrl ? `${insertStlUrl}?v=${stlVersion}` : null
-  const binW = config.grid_x * GRID_UNIT
-  const binH = config.grid_y * GRID_UNIT
+  const binW = (config.freeform ? config.width_mm : config.grid_x * GRID_UNIT) || 1
+  const binH = (config.freeform ? config.depth_mm : config.grid_y * GRID_UNIT) || 1
   const hasExports = stlUrl || zipUrl || threemfUrl || insertStlUrl
 
   return (
@@ -498,6 +524,8 @@ export default function BinPage() {
                 onTextLabelsChange={setTextLabels}
                 gridX={config.grid_x}
                 gridY={config.grid_y}
+                binWidthMm={binW}
+                binHeightMm={binH}
                 wallThickness={config.wall_thickness}
                 defaultCutoutDepth={config.cutout_depth}
                 maxCutoutDepth={calcMaxCutoutDepth(config.height_units, config.stacking_lip)}
@@ -514,7 +542,10 @@ export default function BinPage() {
             <div className="absolute bottom-3.5 left-3.5 right-3.5 z-20 glass-toolbar px-3 py-2 flex items-center justify-between">
               <div className="flex items-center gap-2 text-[11px] text-text-muted">
                 {generating && <Loader2 className="w-3 h-3 animate-spin text-accent" />}
-                <span>{config.grid_x}x{config.grid_y} Grid ({binW} x {binH} mm)</span>
+                {config.freeform
+                  ? <span>{binW} x {binH} mm</span>
+                  : <span>{config.grid_x}x{config.grid_y} Grid ({binW} x {binH} mm)</span>
+                }
                 {placedTools.length > 0 && (
                   <span>· {placedTools.length} tool{placedTools.length !== 1 ? 's' : ''} placed</span>
                 )}

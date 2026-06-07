@@ -17,7 +17,17 @@ logger = logging.getLogger(__name__)
 
 from app.constants import GF_GRID
 
+
 GF_HEIGHT_UNIT = 7.0
+
+
+def _outer_dim(config: GenerateRequest, axis: str) -> float:
+    """Outer width (w) or depth (h) in mm. Gridfinity: grid_count * 42mm. Freeform: direct mm."""
+    if config.freeform:
+        return config.width_mm if axis == "w" else config.depth_mm
+    return (config.grid_x if axis == "w" else config.grid_y) * GF_GRID
+
+
 GF_BASE_HEIGHT = 4.75
 GF_CORNER_R = 3.75     # 4.0 - 0.25 inset
 
@@ -146,19 +156,23 @@ def _build_shell(config: GenerateRequest):
     """
     import manifold3d as mf
 
-    grid_x, grid_y = config.grid_x, config.grid_y
     height = config.height_units * GF_HEIGHT_UNIT
-    outer_w = grid_x * GF_GRID - 0.5
-    outer_h = grid_y * GF_GRID - 0.5
+    outer_w = _outer_dim(config, "w") - 0.5
+    outer_h = _outer_dim(config, "h") - 0.5
     r = GF_CORNER_R
 
-    base_units = []
-    for iy in range(grid_y):
-        for ix in range(grid_x):
-            cx = (ix - (grid_x - 1) / 2.0) * GF_GRID
-            cy = (iy - (grid_y - 1) / 2.0) * GF_GRID
-            unit = _build_base_unit(GF_GRID - 0.5, GF_GRID - 0.5)
-            base_units.append(unit.translate((cx, cy, 0.0)))
+    if config.freeform:
+        # single solid base at full dimensions, no grid-cell pattern
+        base_units = [_build_base_unit(outer_w, outer_h)]
+    else:
+        grid_x, grid_y = config.grid_x, config.grid_y
+        base_units = []
+        for iy in range(grid_y):
+            for ix in range(grid_x):
+                cx = (ix - (grid_x - 1) / 2.0) * GF_GRID
+                cy = (iy - (grid_y - 1) / 2.0) * GF_GRID
+                unit = _build_base_unit(GF_GRID - 0.5, GF_GRID - 0.5)
+                base_units.append(unit.translate((cx, cy, 0.0)))
 
     cs_wall = _cs(_rounded_rect_pts(outer_w, outer_h, r))
     wall_body = mf.Manifold.extrude(cs_wall, height - GF_BASE_HEIGHT).translate(
@@ -205,15 +219,30 @@ def _make_magnet_holes(config: GenerateRequest):
             outer_corners.add((round(cx + dx, 4), round(cy + dy, 4)))
 
     holes = []
-    for iy in range(config.grid_y):
-        for ix in range(config.grid_x):
-            cx = (ix - (config.grid_x - 1) / 2.0) * GF_GRID
-            cy = (iy - (config.grid_y - 1) / 2.0) * GF_GRID
-            for dx, dy in [(-13.0, -13.0), (13.0, -13.0), (13.0, 13.0), (-13.0, 13.0)]:
-                pos = (round(cx + dx, 4), round(cy + dy, 4))
-                if corners_only and pos not in outer_corners:
-                    continue
-                holes.append(mag.translate((pos[0], pos[1], 0.0)))
+
+    if config.freeform:
+        # position magnets at bin edges, not grid-cell centers
+        outer_w = _outer_dim(config, "w")
+        outer_h = _outer_dim(config, "h")
+        cx = 0.0
+        cy = 0.0
+        for ox, oy in [(outer_w / 2 - 4.8, outer_h / 2 - 4.8),
+                       (-outer_w / 2 + 4.8, outer_h / 2 - 4.8),
+                       (-outer_w / 2 + 4.8, -outer_h / 2 + 4.8),
+                       (outer_w / 2 - 4.8, -outer_h / 2 + 4.8)]:
+            if corners_only and (ox, oy) not in outer_corners:
+                continue
+            holes.append(mag.translate((ox, oy, 0.0)))
+    else:
+        for iy in range(config.grid_y):
+            for ix in range(config.grid_x):
+                cx = (ix - (config.grid_x - 1) / 2.0) * GF_GRID
+                cy = (iy - (config.grid_y - 1) / 2.0) * GF_GRID
+                for dx, dy in [(-13.0, -13.0), (13.0, -13.0), (13.0, 13.0), (-13.0, 13.0)]:
+                    pos = (round(cx + dx, 4), round(cy + dy, 4))
+                    if corners_only and pos not in outer_corners:
+                        continue
+                    holes.append(mag.translate((pos[0], pos[1], 0.0)))
 
     return mf.Manifold.batch_boolean(holes, mf.OpType.Add)
 
@@ -751,8 +780,8 @@ class ManifoldSTLGenerator:
 
         t0 = time.monotonic()
 
-        bin_width = config.grid_x * GF_GRID
-        bin_depth = config.grid_y * GF_GRID
+        bin_width = _outer_dim(config, "w")
+        bin_depth = _outer_dim(config, "h")
         offset_x = -bin_width / 2
         offset_y = -bin_depth / 2
         wall_top_z = config.height_units * GF_HEIGHT_UNIT
@@ -770,8 +799,8 @@ class ManifoldSTLGenerator:
         if config.stacking_lip:
             lip_total = LIP_D0 + LIP_D1 + LIP_D2
             notch_depth_below = LIP_D3 + LIP_D4
-            outer_w = config.grid_x * GF_GRID - 0.5
-            outer_h = config.grid_y * GF_GRID - 0.5
+            outer_w = _outer_dim(config, "w") - 0.5
+            outer_h = _outer_dim(config, "h") - 0.5
             cs_wall_lip = _cs(_rounded_rect_pts(outer_w, outer_h, GF_CORNER_R))
             lip_solid = mf.Manifold.extrude(cs_wall_lip, lip_total).translate(
                 (0.0, 0.0, wall_top_z)
@@ -921,10 +950,19 @@ class ManifoldSTLGenerator:
         return True
 
     @staticmethod
-    def _compute_split_points(total_mm: float, grid_count: int, bed_size: float) -> list[float]:
+    def _compute_split_points(total_mm: float, grid_count: int, bed_size: float, freeform: bool = False) -> list[float]:
         """Split points relative to bin centre for one axis."""
         if bed_size <= 0 or total_mm <= bed_size:
             return []
+        if freeform:
+            num_pieces = int(math.ceil(total_mm / bed_size))
+            step = total_mm / num_pieces
+            points = []
+            pos = -total_mm / 2
+            for _ in range(num_pieces - 1):
+                pos += step
+                points.append(pos)
+            return points
         max_units = max(1, int(bed_size // GF_GRID))
         import math as _m
         num_pieces = _m.ceil(grid_count / max_units)
@@ -951,15 +989,15 @@ class ManifoldSTLGenerator:
         import manifold3d as mf
         import math
 
-        bin_width = config.grid_x * GF_GRID
-        bin_depth = config.grid_y * GF_GRID
+        bin_width = _outer_dim(config, "w")
+        bin_depth = _outer_dim(config, "h")
 
         fits_diagonal = (bin_width + bin_depth) / math.sqrt(2) <= bed_size
         if fits_diagonal:
             return []
 
-        x_cuts = self._compute_split_points(bin_width, config.grid_x, bed_size)
-        y_cuts = self._compute_split_points(bin_depth, config.grid_y, bed_size)
+        x_cuts = self._compute_split_points(bin_width, config.grid_x, bed_size, config.freeform)
+        y_cuts = self._compute_split_points(bin_depth, config.grid_y, bed_size, config.freeform)
 
         if not x_cuts and not y_cuts:
             return []

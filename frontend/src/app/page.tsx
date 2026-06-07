@@ -703,7 +703,10 @@ export default function HomePage() {
                         )}
                         <span className="text-[10px] text-text-muted flex items-center gap-0.5 flex-shrink-0">
                           <Grid3X3 className="w-2.5 h-2.5" />
-                          {bin.grid_x}x{bin.grid_y}
+                          {bin.freeform
+                            ? `${bin.width_mm}x${bin.depth_mm}mm`
+                            : `${bin.grid_x}x${bin.grid_y}`
+                          }
                         </span>
                         {bin.tool_count > 0 && (
                           <span className="text-[10px] text-text-muted flex-shrink-0">

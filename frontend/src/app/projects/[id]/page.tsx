@@ -784,7 +784,7 @@ export default function ProjectPage() {
                       {selectedExisting ? <CheckSquare className="w-3.5 h-3.5 text-accent" /> : <Square className="w-3.5 h-3.5 text-text-muted" />}
                       <span className="min-w-0 flex-1">
                         <span className="block text-[11px] text-text-primary truncate">{binLabel(bin)}</span>
-                        <span className="block text-[10px] text-text-muted">{bin.grid_x}x{bin.grid_y} · {bin.tool_count} tool{bin.tool_count !== 1 ? 's' : ''}</span>
+                        <span className="block text-[10px] text-text-muted">{bin.freeform ? `${bin.width_mm}x${bin.depth_mm}mm` : `${bin.grid_x}x${bin.grid_y}`} · {bin.tool_count} tool{bin.tool_count !== 1 ? 's' : ''}</span>
                       </span>
                     </button>
                   )
@@ -823,7 +823,7 @@ export default function ProjectPage() {
                     >
                       <span className="min-w-0">
                         <span className="block text-xs text-text-primary truncate">{binLabel(bin)}</span>
-                        <span className="block text-[10px] text-text-muted">{bin.grid_x}x{bin.grid_y} · {bin.tool_count} tool{bin.tool_count !== 1 ? 's' : ''}</span>
+                        <span className="block text-[10px] text-text-muted">{bin.freeform ? `${bin.width_mm}x${bin.depth_mm}mm` : `${bin.grid_x}x${bin.grid_y}`} · {bin.tool_count} tool{bin.tool_count !== 1 ? 's' : ''}</span>
                       </span>
                     </button>
                     <div className="flex items-center gap-1 flex-shrink-0">

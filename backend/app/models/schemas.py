@@ -72,8 +72,11 @@ class PolygonsRequest(BaseModel):
 
 
 class BinParams(BaseModel):
+    freeform: bool = False
     grid_x: int = 2
     grid_y: int = 2
+    width_mm: float = 84.0
+    depth_mm: float = 84.0
     height_units: int = 4
     magnets: bool = True
     magnet_diameter: float = 6.0
@@ -89,9 +92,20 @@ class BinParams(BaseModel):
 
     @field_validator("grid_x", "grid_y")
     @classmethod
-    def validate_grid(cls, v: int) -> int:
+    def validate_grid(cls, v: int, info) -> int:
+        if info.data.get("freeform"):
+            return v
         if v < 1 or v > 10:
             raise ValueError("grid size must be between 1 and 10")
+        return v
+
+    @field_validator("width_mm", "depth_mm")
+    @classmethod
+    def validate_freeform_dim(cls, v: float, info) -> float:
+        if not info.data.get("freeform"):
+            return v
+        if v < 10 or v > 500:
+            raise ValueError(f"{info.field_name} must be between 10 and 500mm")
         return v
 
     @field_validator("height_units")
@@ -428,8 +442,11 @@ class BinSummary(BaseModel):
     tool_ids: list[str] = []
     tool_count: int
     has_stl: bool
+    freeform: bool = False
     grid_x: int = 2
     grid_y: int = 2
+    width_mm: float = 0.0
+    depth_mm: float = 0.0
     preview_tools: list[BinPreviewTool] = []
 
 

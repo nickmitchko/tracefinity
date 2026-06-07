@@ -66,7 +66,7 @@ from app.constants import GF_GRID
 from app.services.image_processor import ImageProcessor
 from app.services.ai_tracer import AITracer
 from app.services.polygon_scaler import PolygonScaler, ScaledPolygon, ScaledFingerHole
-from app.services.stl_generator_manifold import ManifoldSTLGenerator
+from app.services.stl_generator_manifold import ManifoldSTLGenerator, _outer_dim
 from app.services.session_store import SessionStore
 from app.services.tool_store import ToolStore
 from app.services.bin_store import BinStore
@@ -383,13 +383,18 @@ def _build_bin_from_tools(
         needed_w = tool_width + 2 * clearance + 2 * wall + 0.5
         needed_h = tool_height + 2 * clearance + 2 * wall + 0.5
 
-        grid_x = max(1, int((needed_w + GF_GRID - 1) // GF_GRID))
-        grid_y = max(1, int((needed_h + GF_GRID - 1) // GF_GRID))
-        bc.grid_x = min(grid_x, 10)
-        bc.grid_y = min(grid_y, 10)
-
-        bin_w = bc.grid_x * GF_GRID
-        bin_h = bc.grid_y * GF_GRID
+        if bc.freeform:
+            bc.width_mm = max(20, min(500, math.ceil(needed_w / 10) * 10))
+            bc.depth_mm = max(20, min(500, math.ceil(needed_h / 10) * 10))
+            bin_w = bc.width_mm
+            bin_h = bc.depth_mm
+        else:
+            grid_x = max(1, int((needed_w + GF_GRID - 1) // GF_GRID))
+            grid_y = max(1, int((needed_h + GF_GRID - 1) // GF_GRID))
+            bc.grid_x = min(grid_x, 10)
+            bc.grid_y = min(grid_y, 10)
+            bin_w = bc.grid_x * GF_GRID
+            bin_h = bc.grid_y * GF_GRID
         bbox_cx = (min(all_xs) + max(all_xs)) / 2
         bbox_cy = (min(all_ys) + max(all_ys)) / 2
         offset_x = bin_w / 2 - bbox_cx
@@ -468,8 +473,8 @@ def _run_generate(
     insert_stl_url = None
     warning = None
     if getattr(gen_req, 'insert_enabled', False) and scaled:
-        bin_width = gen_req.grid_x * GF_GRID
-        bin_depth = gen_req.grid_y * GF_GRID
+        bin_width = _outer_dim(gen_req, "w")
+        bin_depth = _outer_dim(gen_req, "h")
         offset_x = -bin_width / 2
         offset_y = -bin_depth / 2
         try:
@@ -1407,6 +1412,7 @@ async def list_bins(request: Request, user_id: str = Depends(get_user_id)):
     all_bins = user_bins.all()
     summaries = []
     for bid, bin_data in all_bins.items():
+        bc = bin_data.bin_config
         summaries.append(BinSummary(
             id=bid,
             name=bin_data.name,
@@ -1415,8 +1421,11 @@ async def list_bins(request: Request, user_id: str = Depends(get_user_id)):
             tool_ids=[pt.tool_id for pt in bin_data.placed_tools],
             tool_count=len(bin_data.placed_tools),
             has_stl=bin_data.stl_path is not None,
-            grid_x=bin_data.bin_config.grid_x,
-            grid_y=bin_data.bin_config.grid_y,
+            freeform=bc.freeform,
+            grid_x=bc.grid_x,
+            grid_y=bc.grid_y,
+            width_mm=bc.width_mm,
+            depth_mm=bc.depth_mm,
             preview_tools=[BinPreviewTool(points=pt.points, interior_rings=pt.interior_rings) for pt in bin_data.placed_tools],
         ))
     summaries.sort(key=lambda b: b.created_at or "", reverse=True)
@@ -1562,8 +1571,11 @@ def generate_bin_stl(request: Request, bin_id: str, user_id: str = Depends(get_u
         scaled.append(sp)
 
     gen_req = GenerateRequest(
+        freeform=bc.freeform,
         grid_x=bc.grid_x,
         grid_y=bc.grid_y,
+        width_mm=bc.width_mm,
+        depth_mm=bc.depth_mm,
         height_units=bc.height_units,
         magnets=bc.magnets,
         magnet_diameter=bc.magnet_diameter,
@@ -1592,10 +1604,13 @@ def generate_bin_stl(request: Request, bin_id: str, user_id: str = Depends(get_u
 
 
 def _bin_stem(bin_data) -> str:
-    """Standardized filename stem: Name_XuYuHu_Dmm-tracefinity"""
+    """Standardized filename stem: Name_XuYuHu_Dmm-tracefinity (or freeform WmmxDmmxHmm)"""
     bc = bin_data.bin_config
     raw = (bin_data.name or "bin").strip()
     safe = re.sub(r"[^\w\-]", "_", raw).strip("_") or "bin"
+    if bc.freeform:
+        total_h = math.ceil(bc.height_units * 7 + 4.75 + (3.8 if bc.stacking_lip else 0))
+        return f"{safe}_{int(bc.width_mm)}x{int(bc.depth_mm)}x{total_h}mm-tracefinity"
     return f"{safe}_{bc.grid_x}u{bc.grid_y}u{bc.height_units}u_{int(bc.cutout_depth)}mm-tracefinity"
 
 

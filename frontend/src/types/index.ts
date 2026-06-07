@@ -95,8 +95,11 @@ export interface GenerateResponse {
 }
 
 export interface BinDefaults {
+  freeform: boolean
   grid_x: number
   grid_y: number
+  width_mm: number
+  depth_mm: number
   height_units: number
   magnets: boolean
   magnet_diameter: number
@@ -267,7 +270,10 @@ export interface BinSummary {
   tool_ids: string[]
   tool_count: number
   has_stl: boolean
+  freeform: boolean
   grid_x: number
   grid_y: number
+  width_mm: number
+  depth_mm: number
   preview_tools: BinPreviewTool[]
 }

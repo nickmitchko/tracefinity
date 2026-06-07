@@ -131,46 +131,106 @@ export function BinConfigurator({ config, onChange, autoSize, onAutoSizeChange }
   }
 
   const maxCutoutDepth = calcMaxCutoutDepth(config.height_units, config.stacking_lip)
-  const binWidth = config.grid_x * 42
-  const binDepth = config.grid_y * 42
+  const binWidth = config.freeform ? config.width_mm : config.grid_x * 42
+  const binDepth = config.freeform ? config.depth_mm : config.grid_y * 42
   const needsSplit = config.bed_size > 0 && (binWidth > config.bed_size || binDepth > config.bed_size)
 
   return (
     <div className="space-y-0">
+      {/* mode toggle */}
+      <div className="flex items-center gap-2 border-b border-border pb-2 mb-1">
+        <button
+          type="button"
+          onClick={() => {
+            if (config.freeform) {
+              // switching to gridfinity: preserve width_mm/depth_mm as grid units
+              const gx = Math.max(1, Math.min(10, Math.round(config.width_mm / 42)))
+              const gy = Math.max(1, Math.min(10, Math.round(config.depth_mm / 42)))
+              update({ freeform: false, grid_x: gx, grid_y: gy })
+            } else {
+              // switching to freeform: preserve grid units as mm
+              update({ freeform: true, width_mm: config.grid_x * 42, depth_mm: config.grid_y * 42 })
+            }
+          }}
+          className={`text-xs px-2 py-1 rounded transition-colors ${config.freeform ? 'bg-accent text-white' : 'bg-elevated text-text-muted'}`}
+        >
+          Freeform
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!config.freeform) return
+            update({ freeform: false })
+          }}
+          className={`text-xs px-2 py-1 rounded transition-colors ${!config.freeform ? 'bg-accent text-white' : 'bg-elevated text-text-muted'}`}
+        >
+          Gridfinity
+        </button>
+        <span className="text-[10px] text-text-muted ml-auto">
+          {config.freeform ? 'mm mode' : 'grid mode'}
+        </span>
+      </div>
+
       {onAutoSizeChange && (
         <Toggle
-          label="Auto-size grid"
-          help="Automatically fit grid to placed tools. Turn off to set grid size manually."
+          label="Auto-size"
+          help={config.freeform ? 'Automatically fit bin to placed tools (mm).' : 'Automatically fit grid to placed tools. Turn off to set grid size manually.'}
           checked={!!autoSize}
           onChange={onAutoSizeChange}
         />
       )}
 
-      <SliderRow
-        label="Grid Width"
-        help="Bin width in gridfinity units. Each unit is 42mm."
-        value={config.grid_x}
-        min={1}
-        max={10}
-        unit="u"
-        onChange={(v) => update({ grid_x: v })}
-        disabled={autoSize}
-      />
-
-      <SliderRow
-        label="Grid Depth"
-        help="Bin depth in gridfinity units. Each unit is 42mm."
-        value={config.grid_y}
-        min={1}
-        max={10}
-        unit="u"
-        onChange={(v) => update({ grid_y: v })}
-        disabled={autoSize}
-      />
+      {config.freeform ? (
+        <>
+          <SliderRow
+            label="Width"
+            help="Bin outer width in mm."
+            value={config.width_mm}
+            min={20}
+            max={500}
+            unit="mm"
+            onChange={(v) => update({ width_mm: v })}
+            disabled={autoSize}
+          />
+          <SliderRow
+            label="Depth"
+            help="Bin outer depth in mm."
+            value={config.depth_mm}
+            min={20}
+            max={500}
+            unit="mm"
+            onChange={(v) => update({ depth_mm: v })}
+            disabled={autoSize}
+          />
+        </>
+      ) : (
+        <>
+          <SliderRow
+            label="Grid Width"
+            help="Bin width in gridfinity units. Each unit is 42mm."
+            value={config.grid_x}
+            min={1}
+            max={10}
+            unit="u"
+            onChange={(v) => update({ grid_x: v })}
+            disabled={autoSize}
+          />
+          <SliderRow
+            label="Grid Depth"
+            help="Bin depth in gridfinity units. Each unit is 42mm."
+            value={config.grid_y}
+            min={1}
+            max={10}
+            unit="u"
+            onChange={(v) => update({ grid_y: v })}
+            disabled={autoSize}
+          />
+        </>
+      )}
 
       <SliderRow
         label="Height"
-        help="Bin height in gridfinity units. Each unit is 7mm, plus a 4.75mm base."
+        help={`Bin height. Each gridfinity unit is 7mm, plus a 4.75mm base. Current: ${(config.height_units * 7 + 4.75).toFixed(1)}mm total.`}
         value={config.height_units}
         min={1}
         max={20}

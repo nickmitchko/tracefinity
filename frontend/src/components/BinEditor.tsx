@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type { PlacedTool, TextLabel } from '@/types'
 import { snapToGrid as snapToGridUtil } from '@/lib/svg'
-import { GRID_UNIT, DISPLAY_SCALE, SNAP_GRID } from '@/lib/constants'
+import { DISPLAY_SCALE, SNAP_GRID } from '@/lib/constants'
 import { BinEditorToolbar } from '@/components/BinEditorToolbar'
 import { BinEditorCanvas } from '@/components/BinEditorCanvas'
 
@@ -14,6 +14,8 @@ interface Props {
   onTextLabelsChange: (labels: TextLabel[]) => void
   gridX: number
   gridY: number
+  binWidthMm: number
+  binHeightMm: number
   wallThickness: number
   defaultCutoutDepth: number
   maxCutoutDepth: number
@@ -47,6 +49,8 @@ export function BinEditor({
   onTextLabelsChange,
   gridX,
   gridY,
+  binWidthMm,
+  binHeightMm,
   wallThickness,
   defaultCutoutDepth,
   maxCutoutDepth,
@@ -70,6 +74,16 @@ export function BinEditor({
   const editInputRef = useRef<HTMLInputElement>(null)
   const rafRef = useRef<number | null>(null)
 
+  // zoom / pan state
+  const [zoom, setZoom] = useState(1)
+  const [panX, setPanX] = useState(0)
+  const [panY, setPanY] = useState(0)
+  const panDragRef = useRef<{ startX: number; startY: number } | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
+
+  // container ref for wheel / mousedown
+  const containerRef = useRef<HTMLDivElement>(null)
+
   const toolsRef = useRef(placedTools)
   const onChangeRef = useRef(onPlacedToolsChange)
   const textLabelsRef = useRef(textLabels)
@@ -81,10 +95,8 @@ export function BinEditor({
 
   useEffect(() => { onDraggingChange?.(dragging !== null) }, [dragging, onDraggingChange])
 
-  const binWidthMm = gridX * GRID_UNIT
-  const binHeightMm = gridY * GRID_UNIT
-  const displayWidth = binWidthMm * DISPLAY_SCALE
-  const displayHeight = binHeightMm * DISPLAY_SCALE
+  const displayWidth = (binWidthMm || 1) * DISPLAY_SCALE
+  const displayHeight = (binHeightMm || 1) * DISPLAY_SCALE
 
   const viewBoxShort = Math.min(displayWidth, displayHeight) + 30
   const handleR = Math.max(14, Math.min(28, viewBoxShort * 0.04))
@@ -124,6 +136,50 @@ export function BinEditor({
     }))
     onPlacedToolsChange(updated)
   }, [getAllBounds, binWidthMm, binHeightMm, placedTools, onPlacedToolsChange])
+
+  const handleCanvasWheel = useCallback((e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+      setZoom(z => Math.max(0.25, Math.min(4, z * factor)))
+    }
+  }, [])
+
+  const handlePanMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 1) return
+    e.preventDefault()
+    e.stopPropagation()
+    panDragRef.current = { startX: e.clientX, startY: e.clientY }
+    setIsPanning(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isPanning) return
+    const onMove = (e: MouseEvent) => {
+      if (!panDragRef.current) return
+      e.preventDefault()
+      const dx = e.clientX - panDragRef.current.startX
+      const dy = e.clientY - panDragRef.current.startY
+      panDragRef.current = { startX: e.clientX, startY: e.clientY }
+      setPanX(p => p + dx)
+      setPanY(p => p + dy)
+    }
+    const onUp = () => {
+      panDragRef.current = null
+      setIsPanning(false)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [isPanning])
+
+  // prevent browser context menu on canvas (middle-click)
+  const handleCanvasContext = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+  }, [])
 
   const screenToMm = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current) return { x: 0, y: 0 }
@@ -390,6 +446,14 @@ export function BinEditor({
     }
   }, [dragging, handleMouseMove, handleMouseUp])
 
+  // wheel zoom on container
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    el.addEventListener('wheel', handleCanvasWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleCanvasWheel)
+  }, [handleCanvasWheel])
+
   const handleDeleteTool = () => {
     if (selection?.type !== 'tool') return
     onPlacedToolsChange(placedTools.filter(t => t.id !== selection.toolId))
@@ -503,7 +567,13 @@ export function BinEditor({
   }
 
   return (
-    <div className="h-full w-full relative">
+    <div
+      ref={containerRef}
+      className="h-full w-full relative overflow-hidden"
+      onMouseDown={handlePanMouseDown}
+      onContextMenu={handleCanvasContext}
+      style={{ cursor: isPanning ? 'grabbing' : undefined }}
+    >
       {/* floating toolbar */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 glass-toolbar px-1.5 py-1 flex items-center gap-0.5">
         <BinEditorToolbar
@@ -569,7 +639,23 @@ export function BinEditor({
         onPendingTextChange={setPendingText}
         onPendingLabelKeyDown={handlePendingLabelKeyDown}
         onPendingLabelBlur={commitPendingLabel}
+        zoom={zoom}
+        panX={panX}
+        panY={panY}
       />
+
+      {/* zoom indicator */}
+      {zoom !== 1 && (
+        <div className="absolute bottom-14 left-3.5 z-20">
+          <button
+            type="button"
+            onClick={() => { setZoom(1); setPanX(0); setPanY(0) }}
+            className="glass-toolbar px-2 py-1 text-[11px] text-text-muted hover:text-text-primary transition-colors cursor-pointer whitespace-nowrap"
+          >
+            {Math.round(zoom * 100)}% · Reset
+          </button>
+        </div>
+      )}
     </div>
   )
 }

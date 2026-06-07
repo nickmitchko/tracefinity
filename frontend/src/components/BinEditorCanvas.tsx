@@ -37,6 +37,10 @@ interface Props {
   handleR: number
   handleStroke: number
   handleOffset: number
+  // zoom / pan
+  zoom: number
+  panX: number
+  panY: number
   // refs for inputs
   pendingInputRef: RefObject<HTMLInputElement | null>
   editInputRef: RefObject<HTMLInputElement | null>
@@ -80,6 +84,9 @@ export function BinEditorCanvas({
   handleR,
   handleStroke,
   handleOffset,
+  zoom,
+  panX,
+  panY,
   pendingInputRef,
   editInputRef,
   handleToolMouseDown,
@@ -99,10 +106,9 @@ export function BinEditorCanvas({
   onPendingLabelBlur,
 }: Props) {
   return (
-    <>
-      {/* SVG area */}
-      <div className="absolute inset-0 bg-inset flex items-center justify-center p-4">
-        <svg
+    <div className="absolute inset-0 bg-inset flex items-center justify-center overflow-auto">
+      <div className="flex items-center justify-center w-full h-full" style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})`, transformOrigin: 'center center' }}>
+      <svg
           ref={svgRef}
           data-testid="bin-canvas"
           viewBox={`-10 -10 ${displayWidth + 70} ${displayHeight + 30}`}
@@ -376,8 +382,7 @@ export function BinEditorCanvas({
             </foreignObject>
           )}
         </svg>
-      </div>
-
-    </>
+          </div>
+        </div>
   )
 }
